@@ -1,0 +1,26 @@
+[
+  {
+    "description": "WAF-RCE-Detect: Block RCE/SSRF/Log4Shell markers (query string or User-Agent)",
+    "expression": "(http.request.uri.query contains \"${jndi:\" or http.user_agent contains \"${jndi:\" or http.request.uri.query contains \"classLoader\" or http.request.uri.query contains \"ognl\" or http.request.uri.query contains \"169.254.169.254\" or http.request.uri.query contains \"file:///etc/passwd\")",
+    "action": "block",
+    "enabled": true
+  },
+  {
+    "description": "WAF-Recon-Log: Log scanner/AIO recon + sensitive-path probes (behavioral — flows through)",
+    "expression": "(http.user_agent contains \"sqlmap\" or http.user_agent contains \"nikto\" or http.user_agent contains \"nuclei\" or http.user_agent contains \"python-requests\" or http.request.uri.path in {\"/.env\" \"/.git/HEAD\" \"/api/v1/admin\" \"/api/v1/training-data\"})",
+    "action": "log",
+    "enabled": true
+  },
+  {
+    "description": "WAF-ConciergeInjection-Log: Log prompt-injection posts to the concierge (behavioral)",
+    "expression": "(http.request.uri.path eq \"/api/v1/chat\" and http.request.method eq \"POST\")",
+    "action": "log",
+    "enabled": true
+  },
+  {
+    "description": "WAF-BotChallenge (DISABLED by default): Managed Challenge on /chat + /login. Enable for a real drop-day; left off so it does not pre-empt the CTF concierge/credential-stuffing boxes.",
+    "expression": "(http.request.uri.path in {\"/api/v1/chat\" \"/login\"})",
+    "action": "managed_challenge",
+    "enabled": false
+  }
+]

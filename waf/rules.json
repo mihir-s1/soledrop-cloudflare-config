@@ -1,0 +1,31 @@
+{
+  "filters": [
+    {
+      "description": "SQLi patterns in query string",
+      "expression": "(http.request.uri.query contains \"UNION\" or http.request.uri.query contains \"SELECT\" or http.request.uri.query contains \"DROP\" or http.request.uri.query contains \"OR 1=1\" or http.request.uri.query contains \"xp_cmdshell\" or http.request.uri.query contains \"SLEEP(\" or http.request.uri.query contains \"WAITFOR\")"
+    },
+    {
+      "description": "XSS patterns in query string",
+      "expression": "(http.request.uri.query contains \"<script\" or http.request.uri.query contains \"javascript:\" or http.request.uri.query contains \"onerror=\" or http.request.uri.query contains \"onload=\" or http.request.uri.query contains \"alert(\" or http.request.uri.query contains \"document.cookie\")"
+    },
+    {
+      "description": "Path traversal patterns",
+      "expression": "(http.request.uri.path contains \"../\" or http.request.uri.query contains \"../\" or http.request.uri.query contains \"/etc/passwd\" or http.request.uri.query contains \"/proc/self\")"
+    },
+    {
+      "description": "Export and download endpoints",
+      "expression": "(http.request.uri.path contains \"/export\" or http.request.uri.path contains \"/download\")"
+    },
+    {
+      "description": "Login POST requests",
+      "expression": "(http.request.uri.path contains \"/login\" and http.request.method eq \"POST\")"
+    }
+  ],
+  "rules": [
+    { "filter_index": 0, "action": "block",  "description": "WAF-SQLi-Detect: Block SQL injection attempts",      "priority": 1 },
+    { "filter_index": 1, "action": "block",  "description": "WAF-XSS-Detect: Block XSS attempts",                "priority": 2 },
+    { "filter_index": 2, "action": "block",  "description": "WAF-PathTraversal-Detect: Block path traversal",     "priority": 3 },
+    { "filter_index": 3, "action": "log",    "description": "WAF-ExfilLog: Log export/download endpoint access",  "priority": 4 },
+    { "filter_index": 4, "action": "log",    "description": "WAF-LoginLog: Log all login POSTs",                  "priority": 5 }
+  ]
+}

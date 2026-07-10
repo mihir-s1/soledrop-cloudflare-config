@@ -1,0 +1,12 @@
+{
+  "name": "soledrop-drop-day",
+  "host": "shop.soledrop.co",
+  "path": "/",
+  "total_active_users": 10000,
+  "new_users_per_minute": 5000,
+  "session_duration": 5,
+  "queueing_method": "fifo",
+  "disable_session_renewal": false,
+  "suspended": false,
+  "description": "Drop-day waiting room. Thresholds are HIGH so normal demo traffic is never queued; lower total_active_users / new_users_per_minute for a real drop."
+}

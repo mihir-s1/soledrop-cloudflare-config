@@ -1,0 +1,26 @@
+[
+  {
+    "description": "RL-Checkout: rate-limit checkout/cart bursts per client IP",
+    "expression": "(http.request.uri.path in {\"/api/v1/checkout\" \"/api/v1/cart\"})",
+    "action": "block",
+    "ratelimit": {
+      "characteristics": ["ip.src"],
+      "period": 10,
+      "requests_per_period": 200,
+      "mitigation_timeout": 60
+    },
+    "enabled": true
+  },
+  {
+    "description": "RL-Login: rate-limit login POST stuffing per client IP",
+    "expression": "(http.request.uri.path eq \"/login\" and http.request.method eq \"POST\")",
+    "action": "managed_challenge",
+    "ratelimit": {
+      "characteristics": ["ip.src"],
+      "period": 10,
+      "requests_per_period": 150,
+      "mitigation_timeout": 60
+    },
+    "enabled": true
+  }
+]
