@@ -8,6 +8,21 @@ SentinelOne. Companion to [attacks-and-detections.md](attacks-and-detections.md)
 > `shop.soledrop.co` events and returned the attacker IPs. Field names, the WAF
 > score direction, and thresholds are all confirmed — this is no longer a draft.
 
+> **📌 Deployed** to the **OneFlare** site (`siteId 2433185103040607397`,
+> account `Cloudflare - NFR`) as scheduled PowerQuery detections, 60/60 min,
+> **Draft** status (enable after review). Rule IDs:
+>
+> | Rule | Severity | ID |
+> |---|---|---|
+> | Mihir - SoleDrop CTF Box 1: Recon / Vuln Scanning | Medium | `2520570388861806827` |
+> | Mihir - SoleDrop CTF Box 2: Bot Swarm (constant JA3) | Medium | `2520570392250804583` |
+> | Mihir - SoleDrop CTF Box 3a: AI Concierge Abuse | High | `2520570395614636482` |
+> | Mihir - SoleDrop CTF Box 3b: Credential Stuffing | High | `2520570399037188688` |
+> | Mihir - SoleDrop CTF Box 4: Breakout (exploit + exfil) | High | `2520570402317134417` |
+>
+> Enable: `PUT /web/api/v2.1/cloud-detection/rules/enable` with
+> `{"filter":{"ids":[…],"siteIds":["2433185103040607397"]}}`.
+
 ---
 
 ## What discovery changed (read this first)
