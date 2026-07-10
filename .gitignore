@@ -6,5 +6,9 @@
 # Local zone snapshots written by enable-detections.sh (may contain zone config)
 backups/
 
+# SentinelOne runner credentials — never commit
+credentials.json
+.sentinelone/
+
 # OS junk
 .DS_Store
