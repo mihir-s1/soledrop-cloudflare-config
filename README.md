@@ -41,7 +41,7 @@ bash rollback.sh
 bash logpush-to-s1.sh
 ```
 
-Idempotent (matches jobs by name → `PUT` update, else `POST`). If a job errors with invalid-credentials, flip `S1_HEC_AUTH_SCHEME` (`Bearer`↔`Splunk`) in `.env.local` and re-run. `http_requests` Logpush needs Enterprise; `firewall_events` works on any paid plan. Score/JA4/bot fields populate only with the matching Enterprise entitlements (null otherwise — harmless).
+Uses Cloudflare's native **`sentinelone://`** Logpush destination (renders with the SentinelOne logo, not Splunk). Idempotent (matches jobs by name → `PUT` update, else `POST`). If a job errors with invalid-credentials, check `S1_HEC_INGEST_TOKEN` / `S1_HEC_AUTH_SCHEME` (default `Bearer`) and re-run. `http_requests` Logpush needs Enterprise; `firewall_events` works on any paid plan. Score/JA4/bot fields populate only with the matching Enterprise entitlements (null otherwise — harmless).
 
 ## Usage
 

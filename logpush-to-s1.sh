@@ -68,15 +68,18 @@ print('ERROR:'+str(d['errors'])) if not d['success'] else print(d['result']['nam
 success "Token valid — zone: $ZONE_STATUS"
 [[ "$ZONE_STATUS" == "soledrop.co" ]] || warn "Zone is '$ZONE_STATUS', expected 'soledrop.co' — continuing anyway."
 
-# ── Build the Splunk-HEC destination string ───────────────────────────────────
+# ── Build the native SentinelOne destination string ───────────────────────────
+# Matches Cloudflare's first-class SentinelOne Logpush connector (renders with
+# the S1 logo, not Splunk). Unlike splunk://, it takes NO channel / skip-verify —
+# just header_Authorization + sourcetype.
 # strip any scheme the user may have included; keep host + path verbatim
 HEC="${S1_HEC_INGEST_URL#*://}"
 AUTH_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]+' '+sys.argv[2]))" \
              "$S1_HEC_AUTH_SCHEME" "$S1_HEC_INGEST_TOKEN")
-build_dest() {  # $1 = channel GUID
-  echo "splunk://${HEC}?channel=$1&insecure-skip-verify=false&sourcetype=${S1_HEC_SOURCETYPE}&header_Authorization=${AUTH_ENC}"
+build_dest() {
+  echo "sentinelone://${HEC}?header_Authorization=${AUTH_ENC}&sourcetype=${S1_HEC_SOURCETYPE}"
 }
-info "Destination: splunk://${HEC}  (sourcetype=${S1_HEC_SOURCETYPE}, auth=${S1_HEC_AUTH_SCHEME} <token>)"
+info "Destination: sentinelone://${HEC}  (sourcetype=${S1_HEC_SOURCETYPE}, auth=${S1_HEC_AUTH_SCHEME} <token>)"
 
 # ── Field sets (markers ride URL query + User-Agent — Cloudflare omits bodies) ─
 FW_FIELDS="Action,ClientASN,ClientASNDescription,ClientCountry,ClientIP,ClientIPClass,ClientRequestHTTPHost,ClientRequestHTTPMethodName,ClientRequestHTTPProtocol,ClientRequestPath,ClientRequestQuery,ClientRequestScheme,ClientRequestUserAgent,Datetime,EdgeColoCode,EdgeResponseStatus,Kind,MatchIndex,Metadata,OriginResponseStatus,OriginatorRayName,RayName,RuleID,Ruleset,RulesetID,Source,WAFAttackScore,WAFSQLiAttackScore,WAFXSSAttackScore,WAFRCEAttackScore"
@@ -113,9 +116,8 @@ else: print(next((str(j['id']) for j in (d.get('result') or []) if j.get('name')
 }
 
 ensure_job() {  # $1=name $2=dataset $3=fields $4=filter(json|"")
-  local name="$1" dataset="$2" fields="$3" filter="$4" channel dest id body R
-  channel="$(python3 -c 'import uuid;print(uuid.uuid4())')"
-  dest="$(build_dest "$channel")"
+  local name="$1" dataset="$2" fields="$3" filter="$4" dest id body R
+  dest="$(build_dest)"
   id="$(find_job_id "$name")"
   [[ "$id" == ERR ]] && error "Could not list Logpush jobs — token likely missing 'Zone : Logs : Edit'."
   if [[ -n "$id" ]]; then
@@ -139,8 +141,8 @@ step "Done"
 success "Logpush → SentinelOne configured on $ZONE_STATUS."
 echo -e "\n${BOLD}Notes:${RESET}"
 echo "  • Cloudflare validated each destination by POSTing a test event to S1. If a job"
-echo "    shows 'err:...4004... invalid credentials/destination', flip S1_HEC_AUTH_SCHEME"
-echo "    (Bearer<->Splunk) in .env.local and re-run — that's the usual culprit."
+echo "    shows 'err:... invalid credentials/destination', check S1_HEC_INGEST_TOKEN and"
+echo "    S1_HEC_AUTH_SCHEME (default Bearer — the S1 write-token scheme) and re-run."
 echo "  • http_requests Logpush requires an Enterprise plan; firewall_events is available on"
 echo "    all paid plans. WAFAttackScore / BotScore / JA4 only populate with the matching"
 echo "    Enterprise entitlements (they log as null otherwise — harmless)."
