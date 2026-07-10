@@ -38,6 +38,12 @@ command -v python3 >/dev/null 2>&1 || error "python3 not found."
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Auto-load .env.local (if present) and export its vars, so you can just run
+# `bash enable-detections.sh` after filling .env.local — no manual `export`.
+if [[ -f "$SCRIPT_DIR/.env.local" ]]; then
+  set -a; source "$SCRIPT_DIR/.env.local"; set +a
+fi
+
 # ── Env validation ───────────────────────────────────────────────────────────
 step "Validating environment"
 : "${CLOUDFLARE_API_TOKEN:?  Missing CLOUDFLARE_API_TOKEN — set it in .env.local}"
