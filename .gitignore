@@ -3,5 +3,8 @@
 .env.*
 !.env.example
 
+# Local zone snapshots written by enable-detections.sh (may contain zone config)
+backups/
+
 # OS junk
 .DS_Store

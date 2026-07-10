@@ -80,6 +80,20 @@ success "Token valid — zone: $ZONE_NAME (status: $ZONE_STATE)"
 CF_MANAGED_RULESET="efb7b8c949ac4650a09736fc376e9aee"   # Cloudflare Managed Ruleset
 OWASP_RULESET="4814384a9e5d4991b9815dcfc25d2f1f"        # Cloudflare OWASP Core Ruleset
 
+# ── Backup current state (so rollback.sh can restore exactly) ─────────────────
+# The WAF/rate-limit steps below PUT the phase entrypoints (declarative replace).
+# Snapshot the current entrypoints + waiting rooms first so nothing is lost.
+step "Backing up current zone state"
+BACKUP_DIR="$SCRIPT_DIR/backups/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+for phase in http_request_firewall_managed http_request_firewall_custom http_ratelimit; do
+  cf_api GET "/zones/$CLOUDFLARE_ZONE_ID/rulesets/phases/$phase/entrypoint" > "$BACKUP_DIR/$phase.json" 2>/dev/null || true
+done
+cf_api GET "/zones/$CLOUDFLARE_ZONE_ID/waiting_rooms" > "$BACKUP_DIR/waiting_rooms.json" 2>/dev/null || true
+# Record which zone this backup belongs to (rollback validates against it).
+echo "$CLOUDFLARE_ZONE_ID" > "$BACKUP_DIR/zone_id.txt"
+success "Snapshot saved → ${BACKUP_DIR#$SCRIPT_DIR/}  (rollback.sh restores from the latest)"
+
 # ── Step 1: WAF managed ruleset (managed coverage + WAF attack scoring) ───────
 step "1/6  WAF managed ruleset (Cloudflare Managed + OWASP)"
 MANAGED_BODY=$(python3 - "$CF_MANAGED_RULESET" "$OWASP_RULESET" <<'PY'

@@ -19,6 +19,16 @@ Idempotent script that provisions the Cloudflare security controls for the **Sol
 
 Rulesets phase entrypoints are written with `PUT`, so re-runs are idempotent (declarative replace).
 
+### Safety / rollback
+
+The script **doesn't disable** any Cloudflare protection — it only adds rules (and the one managed-challenge rule ships disabled). Because the WAF/rate-limit phases use `PUT` (which replaces the whole rule list in that phase), the script **snapshots the current phase entrypoints + Waiting Rooms to `backups/<timestamp>/` before changing anything**. To undo:
+
+```bash
+bash rollback.sh
+```
+
+`rollback.sh` restores the three phase entrypoints from the latest snapshot and deletes the `soledrop-drop-day` Waiting Room **only if this kit created it**. (`backups/` is gitignored.)
+
 ## Usage
 
 ```bash
