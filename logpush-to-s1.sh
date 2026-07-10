@@ -48,7 +48,7 @@ step "Validating environment"
 
 # Tunables (override in .env.local if needed)
 S1_HEC_SOURCETYPE="${S1_HEC_SOURCETYPE:-marketplace-cloudflare-latest}"
-S1_HEC_AUTH_SCHEME="${S1_HEC_AUTH_SCHEME:-Bearer}"   # S1 write token -> Bearer; a native Splunk HEC would use "Splunk"
+S1_HEC_AUTH_SCHEME="${S1_HEC_AUTH_SCHEME-Bearer}"    # unset -> Bearer; set empty ("") -> bare token (no scheme prefix)
 SHOP_HOST="${SHOP_HOST:-shop.soledrop.co}"
 
 cf_api() {
