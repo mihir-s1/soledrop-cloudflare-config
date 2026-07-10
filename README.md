@@ -27,7 +27,21 @@ The script **doesn't disable** any Cloudflare protection — it only adds rules 
 bash rollback.sh
 ```
 
-`rollback.sh` restores the three phase entrypoints from the latest snapshot and deletes the `soledrop-drop-day` Waiting Room **only if this kit created it**. (`backups/` is gitignored.)
+`rollback.sh` restores the three phase entrypoints from the latest snapshot, deletes the `soledrop-drop-day` Waiting Room **only if this kit created it**, and deletes the `soledrop-*` Logpush jobs. (`backups/` is gitignored.)
+
+## Logpush → SentinelOne
+
+`logpush-to-s1.sh` streams the zone's telemetry to SentinelOne's HEC-compatible ingest. Cloudflare's edge pushes directly to S1 — nothing egresses your machine (local TLS-inspection proxies don't apply). Two jobs, chosen for signal over noise:
+
+- **`firewall_events`** — every WAF / rate-limit match (blocks **and** the `log` rules), **unfiltered**. Low volume, pure security signal.
+- **`http_requests`** — **filtered to `host=shop.soledrop.co`**. The bot-swarm / JA4 / recon / cred-stuffing / exfil traffic *passes* the WAF, so it only appears here. The host filter keeps all attack traffic and drops unrelated zone noise.
+
+```bash
+# .env.local already has S1_HEC_INGEST_URL / S1_HEC_INGEST_TOKEN
+bash logpush-to-s1.sh
+```
+
+Idempotent (matches jobs by name → `PUT` update, else `POST`). If a job errors with invalid-credentials, flip `S1_HEC_AUTH_SCHEME` (`Bearer`↔`Splunk`) in `.env.local` and re-run. `http_requests` Logpush needs Enterprise; `firewall_events` works on any paid plan. Score/JA4/bot fields populate only with the matching Enterprise entitlements (null otherwise — harmless).
 
 ## Usage
 
@@ -49,17 +63,18 @@ curl "https://shop.soledrop.co/search?q=%27%20OR%201=1--" -H "User-Agent: sqlmap
 
 You should see a WAF **block** with a populated `WAFAttackScore`. Re-running the script is safe (idempotent).
 
-## Not done here (required for end-to-end detection)
+## Not done here (S1-side)
 
-This repo handles the **Cloudflare enforcement/scoring** side only. For the SentinelOne STAR rules to actually fire you still need:
+This repo handles the **Cloudflare enforcement/scoring + shipping** side. The only remaining piece is in your SentinelOne tenant:
 
-1. **Logpush → SentinelOne** (deferred): zone datasets **HTTP Requests** + **Firewall Events** → your S1 HEC (`S1_HEC_INGEST_URL` / `S1_HEC_INGEST_TOKEN`), including the score/JA4/bot fields. Not automated here yet.
-2. **S1 side**: deploy the Cloudflare→OCSF parser and the STAR detection rules in your tenant, scoped to the site receiving this zone's Logpush.
+- **S1 side**: deploy the Cloudflare→OCSF parser (`marketplace-cloudflare-latest`) and the STAR detection rules, scoped to the site receiving this zone's Logpush. Once events land (verify: `sourcetype="marketplace-cloudflare-latest"`), the detections fire.
 
 ## Files
 
 ```
-enable-detections.sh        # the provisioning script
+enable-detections.sh        # provisions WAF / rate limiting / Waiting Room
+logpush-to-s1.sh            # Logpush jobs: firewall_events + http_requests → S1 HEC
+rollback.sh                 # restores WAF/RL/WR from snapshot; deletes soledrop-* Logpush jobs
 waf/rules.json              # base custom rules (SQLi/XSS/traversal block; export/login log)
 waf/extra-custom-rules.json # RCE/SSRF block, recon/concierge log, disabled managed-challenge
 ratelimit/rules.json        # rate-limit rules (checkout/cart/login)

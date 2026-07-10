@@ -92,6 +92,23 @@ print(next((w['id'] for w in (d.get('result') or []) if w.get('name')=='soledrop
   fi
 fi
 
+# ── Logpush jobs — delete the ones this kit created (soledrop-*) ──────────────
+step "Logpush jobs"
+JOB_IDS="$(cf_api GET "/zones/$CLOUDFLARE_ZONE_ID/logpush/jobs" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+if d.get('success'):
+    print(' '.join(str(j['id']) for j in (d.get('result') or []) if str(j.get('name','')).startswith('soledrop-')))
+")"
+if [[ -z "${JOB_IDS// }" ]]; then
+  info "No soledrop-* Logpush jobs found — nothing to delete."
+else
+  for jid in $JOB_IDS; do
+    R="$(cf_api DELETE "/zones/$CLOUDFLARE_ZONE_ID/logpush/jobs/$jid" | cf_ok)"
+    [[ "$R" == ok ]] && success "deleted Logpush job $jid" || warn "Logpush $jid delete: $R"
+  done
+fi
+
 step "Done"
 success "Rolled back to snapshot ${LATEST#$SCRIPT_DIR/}."
 info "Bot Management / Firewall for AI were never modified by enable-detections.sh, so nothing to undo there."
