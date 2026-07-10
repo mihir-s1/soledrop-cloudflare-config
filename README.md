@@ -79,5 +79,6 @@ waf/rules.json              # base custom rules (SQLi/XSS/traversal block; expor
 waf/extra-custom-rules.json # RCE/SSRF block, recon/concierge log, disabled managed-challenge
 ratelimit/rules.json        # rate-limit rules (checkout/cart/login)
 waitingroom/config.json     # drop-day Waiting Room
+docs/attacks-and-detections.md  # attack-by-attack: what's blocked vs logged & why (+ layman's version)
 .env.example                # required env vars
 ```
