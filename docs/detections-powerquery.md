@@ -1,230 +1,204 @@
 # SoleDrop CTF — SentinelOne STAR Detections (PowerQuery)
 
-Four STAR / Custom Detection rule bodies — **one per CTF box** — for the Cloudflare
-Logpush data landing in SentinelOne under `sourcetype="marketplace-cloudflare-latest"`
-(datasets `firewall_events` + `http_requests`). Companion to
-[attacks-and-detections.md](attacks-and-detections.md), which explains *what* each
-box does and *why* things block vs. log.
+Detection rule bodies — one per CTF box — for the Cloudflare Logpush data in
+SentinelOne. Companion to [attacks-and-detections.md](attacks-and-detections.md).
 
-> These are **drafts pending field-name confirmation** — run **Step 0** first,
-> then adjust the field map if your parser names things differently. Every rule
-> references the map, so it's a one-place edit.
+> **✅ Verified against live data** (2026-07-10, `usea1-partners`, 7-day window,
+> via the LRQ API). Every query below was run against the real
+> `shop.soledrop.co` events and returned the attacker IPs. Field names, the WAF
+> score direction, and thresholds are all confirmed — this is no longer a draft.
 
 ---
 
-## Step 0 — confirm the field names (run this once)
+## What discovery changed (read this first)
 
-The `marketplace-cloudflare-latest` parser decides whether Cloudflare's fields
-keep their original names (`ClientIP`, `JA4`, …) or get mapped to OCSF
-(`src.ip.address`, `unmapped.*`). Discover the real shape before deploying:
+The parser is the S1 marketplace OCSF parser (`marketplace-cloudflare-latest`),
+and reality differed from the first-draft guesses in five important ways:
 
-```text
-sourcetype="marketplace-cloudflare-latest" ClientRequestHost="shop.soledrop.co"
-| limit 5
-```
+1. **Scope by `dataSource.name='Cloudflare'`, not `sourcetype=…`.** The
+   sourcetype filter returned 0 rows; the data lives under
+   `dataSource.name='Cloudflare'`.
+2. **Your account already has a Cloudflare Gateway / Zero-Trust integration**
+   feeding the *same* `dataSource.name='Cloudflare'` (≈374k events/7d). Our shop
+   Logpush is a small slice of that. **Every rule must filter
+   `http_request.url.hostname='shop.soledrop.co'`** or it drowns in Gateway noise.
+   The two shop datasets are `dataSource.cloudflare_dataset='HTTP Requests'` and
+   `='Firewall events'`.
+3. **Fields are OCSF, not Cloudflare PascalCase** (see map below).
+4. **JA4 isn't queryable** — the parser stores it as `ja4_fingerprint_list[0].value`,
+   and PQ can't address the `[0]` array element (bracket won't parse, dot-index
+   returns null). Use **`tls.ja3_hash.value`** (a flat field) — functionally
+   identical for "one fingerprint, many UAs." (JA4 is still in `raw_data` if you
+   ever need to `parse` it out.)
+5. **WAF scores are ingested as *strings*** → wrap in `number()` for math, and
+   **lower = more malicious is confirmed**: SQLi attack requests scored
+   `WAFSQLiAttackScore = 8–10` and blocked breakout requests scored `1`, vs `~97`
+   for clean traffic. (The CTF script's ">90" comment is wrong.) Guard against
+   `number(null)→0` with `score > 0 && score <= 20`.
 
-Inspect the returned records (or run `powerquery_schema_discover` on the
-sourcetype) and confirm the paths below. Also verify the **two discriminators**
-that tell the datasets apart:
+### Verified field map
 
-- **`http_requests`** rows have **`ClientRequestHost`** (+ `ClientRequestURI`, `JA4`, `EdgeResponseStatus`).
-- **`firewall_events`** rows have **`ClientRequestHTTPHost`** (+ `Action`, `RuleID`, `Kind`).
-
-### Field map (edit here if discovery differs)
-
-| Logical field | Assumed path (http_requests) | Assumed path (firewall_events) | OCSF fallback to check |
-|---|---|---|---|
-| Source IP | `ClientIP` | `ClientIP` | `src.ip.address` |
-| Host | `ClientRequestHost` | `ClientRequestHTTPHost` | `url.hostname` |
-| Path | `ClientRequestPath` | `ClientRequestPath` | `url.path` |
-| Method | `ClientRequestMethod` | `ClientRequestHTTPMethodName` | `http_request.http_method` |
-| User-Agent | `ClientRequestUserAgent` | `ClientRequestUserAgent` | `http_request.user_agent` |
-| TLS fingerprint | `JA4` | — | `unmapped.JA4` |
-| Bot score | `BotScore` | — | `unmapped.BotScore` |
-| WAF action | `SecurityAction` | `Action` | `unmapped.Action` |
-| WAF rule id | `SecurityRuleID` | `RuleID` | `unmapped.RuleID` |
-| RCE score | `WAFRCEAttackScore` | `WAFRCEAttackScore` | `unmapped.WAFRCEAttackScore` |
-| SQLi score | `WAFSQLiAttackScore` | `WAFSQLiAttackScore` | `unmapped.WAFSQLiAttackScore` |
-
-> **Sourcetype field:** HEC-ingested data usually keeps `sourcetype` addressable.
-> If it doesn't resolve on your tenant, swap `sourcetype="…"` for the
-> Cloudflare `dataSource.name` value discovery shows.
-
-> ⚠️ **Cloudflare WAF Attack Score direction:** Cloudflare's native convention is
-> **1–99 where a *lower* score = *more* likely an attack** (`<= 20` ≈ malicious).
-> The CTF script's comments assume the opposite — **confirm the direction in your
-> data** on a known-malicious Box 4 event before trusting the score threshold.
-> The Box 4 rule below leans on `Action="block"` (unambiguous) and treats the
-> score as secondary.
+| Logical field | OCSF path | Notes |
+|---|---|---|
+| Source IP | `src_endpoint.ip` | client IP as Cloudflare sees it |
+| Host | `http_request.url.hostname` | filter to `shop.soledrop.co` |
+| Dataset | `dataSource.cloudflare_dataset` | `HTTP Requests` / `Firewall events` |
+| Path | `http_request.url.path` | |
+| Full URL | `http_request.url.url_string` | carries the query string (markers) |
+| Method | `http_request.http_method` | |
+| User-Agent | `http_request.user_agent` | |
+| TLS fingerprint | `tls.ja3_hash.value` | JA3 (use instead of JA4) |
+| Bot score | `unmapped.BotScore` | string |
+| WAF action | `action` | `log` / `block` (Firewall events) |
+| WAF rule | `firewall_rule.desc`, `firewall_rule.uid` | our rule names show here |
+| RCE / SQLi score | `unmapped.WAFRCEAttackScore` / `unmapped.WAFSQLiAttackScore` | **string**, lower=worse |
+| AI injection score | `unmapped.FirewallForAIInjectionScore` | string, higher=worse (100 seen) |
+| Edge status | `unmapped.EdgeResponseStatus` | string |
 
 ---
 
 ## Rule 1 — Box 1: Recon / vulnerability scanning
-**One source IP enumerating many distinct paths and/or using scanner User-Agents.**
-
-MITRE: **T1595.002** Active Scanning: Vulnerability Scanning
-Dataset: `http_requests` · Window: **10 min** rolling · Fires if ≥1 row returns.
+**One source IP hitting many distinct paths and/or scanner User-Agents.**
+MITRE **T1595.002** · single-pipeline (alert-safe)
 
 ```text
-sourcetype="marketplace-cloudflare-latest" ClientRequestHost="shop.soledrop.co" ClientIP=*
-| group distinct_paths = estimate_distinct(ClientRequestPath),
-        scanner_hits   = count(ClientRequestUserAgent matches "nikto|nuclei|sqlmap|masscan|wpscan|dirsearch|dirbuster|gobuster|feroxbuster|libwww-perl|python-requests|curl/"),
-        total_requests = count(),
-        sample_paths   = array_agg_distinct(ClientRequestPath, 25),
-        sample_uas     = array_agg_distinct(ClientRequestUserAgent, 10),
-        first_seen     = min(timestamp),
-        last_seen      = max(timestamp)
-  by ClientIP
-| filter distinct_paths >= 15 || scanner_hits >= 5
+dataSource.name='Cloudflare' http_request.url.hostname='shop.soledrop.co' src_endpoint.ip=*
+| group distinct_paths = estimate_distinct(http_request.url.path),
+        scanner_hits   = count(http_request.user_agent matches 'nikto|nuclei|sqlmap|masscan|wpscan|dirsearch|dirbuster|gobuster|feroxbuster|libwww-perl|python-requests|curl/'),
+        total          = count(),
+        sample_uas     = array_agg_distinct(http_request.user_agent, 8)
+  by src_endpoint.ip
+| filter distinct_paths >= 12 || scanner_hits >= 5
 | sort -distinct_paths
 | limit 100
 ```
 
-- **Why it works:** real shoppers hit a handful of paths; a scanner touches
-  dozens. `scanner_hits` catches the honest-UA tools even below the path
-  threshold.
-- **Tuning:** raise `distinct_paths` if a legit crawler (your own monitoring)
-  trips it; add its UA/IP to an allowlist filter.
-- **Output columns:** `ClientIP`, `distinct_paths`, `scanner_hits`, `sample_paths`.
+**Live result:** attacker IPs returned **41 paths / 144 scanner hits** and
+**39 / 97**; benign traffic maxed at **4 paths / 0 scanners** → thresholds
+(`12` paths / `5` scanners) separate them cleanly.
 
 ---
 
-## Rule 2 — Box 2: Polymorphic bot swarm (constant JA4)
-**One TLS fingerprint (`JA4`) appearing under many different User-Agents.**
-
-MITRE: **T1595** Active Scanning / **T1036.005** Masquerading
-Dataset: `http_requests` · Window: **10 min** rolling.
+## Rule 2 — Box 2: Polymorphic bot swarm (constant fingerprint)
+**One TLS (JA3) fingerprint appearing under many different User-Agents.**
+MITRE **T1595 / T1036.005** · single-pipeline (alert-safe)
 
 ```text
-sourcetype="marketplace-cloudflare-latest" ClientRequestHost="shop.soledrop.co" JA4=*
-| group ua_variety   = estimate_distinct(ClientRequestUserAgent),
-        requests      = count(),
-        src_ip_spread = estimate_distinct(ClientIP),
-        sample_uas    = array_agg_distinct(ClientRequestUserAgent, 20),
-        worst_botscore = min(BotScore)
-  by JA4
-| filter ua_variety >= 8 && requests >= 20
+dataSource.name='Cloudflare' dataSource.cloudflare_dataset='HTTP Requests' http_request.url.hostname='shop.soledrop.co' tls.ja3_hash.value=*
+| group ua_variety = estimate_distinct(http_request.user_agent),
+        requests    = count(),
+        ip_spread   = estimate_distinct(src_endpoint.ip),
+        sample_uas  = array_agg_distinct(http_request.user_agent, 20)
+  by fp = tls.ja3_hash.value
+| filter ua_variety >= 6
 | sort -ua_variety
-| limit 100
+| limit 50
 ```
 
-- **Why it works:** a real client library ↔ browser pairing shows **one JA4 per
-  UA family**. Eight-plus wildly different UAs (sneaker bots + SDKs + headless)
-  sharing **one** JA4 is physically impossible for real users — it's the same
-  tool wearing disguises.
-- **Known CTF fingerprint (optional tightening):** add
-  `&& JA4 == "t13d1812h1_85036bcba153_b26ce05bbdd6"` to pin the exact lab client,
-  or leave it off to catch *any* polymorphic swarm.
-- **Depends on:** the **Bot Management** entitlement (emits `JA4`/`BotScore`).
-- **Output columns:** `JA4`, `ua_variety`, `requests`, `src_ip_spread`.
+**Live result:** the swarm fingerprint `86dab2109182b6bbaa644647d7db2997` returned
+**37 distinct User-Agents / 871 requests**; every other JA3 had **1–2** UAs →
+threshold `6` is safe. Depends on the **Bot Management** entitlement (present).
 
 ---
 
-## Rule 3 — Box 3: AI-concierge abuse + credential stuffing
-**A burst of `/api/v1/chat` POSTs and/or a burst of `/login` POSTs from few IPs.**
+## Rule 3 — Box 3: concierge injection + credential stuffing
+Because STAR bodies **don't allow `union`/subqueries**, deploy this as **two
+separate alert-safe rules**. (The combined `union` form at the bottom is for
+ad-hoc hunting only.)
 
-MITRE: **ATLAS AML.T0051** LLM Prompt Injection / **T1110.004** Credential Stuffing
-Dataset: `http_requests` (+ `firewall_events` for WAF-flagged chat) · Window: **10 min**.
-
-> **Body-omission caveat:** Cloudflare logs **do not contain request bodies**, so
-> the actual injection *prompt text* is **not** in this data — we detect the
-> **behavioral shape** (abnormal volume to the concierge/login endpoints) plus any
-> WAF block on `/api/v1/chat`. Deterministic prompt scoring needs **Firewall for
-> AI** (`FirewallForAIInjectionScore`, currently off) or app-side logging.
+### Rule 3a — AI-concierge abuse
+MITRE **ATLAS AML.T0051** · single-pipeline
 
 ```text
-| union
-  (
-    // Concierge abuse: abnormal volume of chat POSTs from one IP
-    sourcetype="marketplace-cloudflare-latest" ClientRequestHost="shop.soledrop.co" ClientRequestPath="/api/v1/chat" ClientRequestMethod="POST"
-    | group hits = count(), last_seen = max(timestamp) by ClientIP
-    | filter hits >= 4
-    | columns signal = "concierge-abuse", ClientIP, hits, last_seen
-  ),
-  (
-    // WAF already flagged a chat request as an attack (injection-like payload)
-    sourcetype="marketplace-cloudflare-latest" ClientRequestHTTPHost="shop.soledrop.co" ClientRequestPath="/api/v1/chat" Action="block"
-    | group hits = count(), last_seen = max(timestamp) by ClientIP
-    | filter hits >= 1
-    | columns signal = "concierge-waf-block", ClientIP, hits, last_seen
-  ),
-  (
-    // Credential stuffing: burst of login POSTs from one IP
-    sourcetype="marketplace-cloudflare-latest" ClientRequestHost="shop.soledrop.co" ClientRequestPath="/login" ClientRequestMethod="POST"
-    | group hits = count(), last_seen = max(timestamp) by ClientIP
-    | filter hits >= 10
-    | columns signal = "credential-stuffing", ClientIP, hits, last_seen
-  )
-| sort -hits
+dataSource.name='Cloudflare' http_request.url.hostname='shop.soledrop.co' http_request.url.path='/api/v1/chat'
+| let inj = number(unmapped.FirewallForAIInjectionScore)
+| group chat_hits = count(),
+        max_injection = max(inj),
+        waf_blocks    = count(action='block')
+  by src_endpoint.ip
+| filter chat_hits >= 5
+| sort -chat_hits
 | limit 100
 ```
 
-- **Why it works:** the concierge/login endpoints are low-traffic for real users;
-  automated abuse spikes the per-IP rate. The middle branch promotes any
-  managed-WAF chat block straight to a finding.
-- **Tuning:** the `/login` threshold (10) is the main knob — set it just above a
-  human's realistic retry count.
-- **Output columns:** `signal`, `ClientIP`, `hits`, `last_seen`.
+**Live result:** attacker `104.28.153.9` → **95 chat hits, `max_injection=100`,
+52 WAF blocks**; second IP → 60 hits / 31 blocks. `FirewallForAIInjectionScore`
+**is** populated (100 = injection), a bonus over the earlier "off" assumption.
+
+### Rule 3b — credential stuffing
+MITRE **T1110.004** · single-pipeline
+
+```text
+dataSource.name='Cloudflare' http_request.url.hostname='shop.soledrop.co' http_request.url.path='/login' http_request.http_method='POST'
+| group login_posts = count(), last_seen = max(timestamp)
+  by src_endpoint.ip
+| filter login_posts >= 8
+| sort -login_posts
+| limit 100
+```
+
+**Live result:** attacker IPs returned **53** and **24** login POSTs → threshold
+`8` clears realistic human retries.
 
 ---
 
 ## Rule 4 — Box 4: Breakout (exploit + correlated exfiltration)
-**Same IP that triggered WAF *blocks* is also doing bulk pulls of sensitive endpoints.**
-
-MITRE: **T1190** Exploit Public-Facing App + **T1119/T1020** Automated Collection & Exfiltration
-Datasets: `firewall_events` (blocks) ⋈ `http_requests` (exfil) · Window: **15 min**.
+**Same IP that triggered low-score WAF exploit hits is also doing bulk exfil
+pulls.** MITRE **T1190 + T1119/T1020** · uses **`inner join`** (alert-safe).
 
 ```text
-| join
+| inner join
   (
-    // (A) exploit attempts — WAF block events (RCE/SQLi/traversal/SSRF)
-    sourcetype="marketplace-cloudflare-latest" ClientRequestHTTPHost="shop.soledrop.co" Action="block" ClientIP=*
-    | group block_hits  = count(),
-            rule_ids     = array_agg_distinct(RuleID, 10),
-            worst_rce    = min(WAFRCEAttackScore),
-            worst_sqli   = min(WAFSQLiAttackScore)
-      by ClientIP
-    | filter block_hits >= 2
+    // (A) exploit attempts — WAF attack score in the malicious band (1–20)
+    dataSource.name='Cloudflare' dataSource.cloudflare_dataset='HTTP Requests' http_request.url.hostname='shop.soledrop.co'
+    | let sqli = number(unmapped.WAFSQLiAttackScore), rce = number(unmapped.WAFRCEAttackScore)
+    | filter (sqli > 0 && sqli <= 20) || (rce > 0 && rce <= 20)
+    | group exploit_hits = count(), worst_sqli = min(sqli), worst_rce = min(rce),
+            exploit_paths = array_agg_distinct(http_request.url.path, 6)
+      by src_endpoint.ip
+    | filter exploit_hits >= 2
   ),
   (
     // (B) bulk exfil pulls of sensitive endpoints
-    sourcetype="marketplace-cloudflare-latest" ClientRequestHost="shop.soledrop.co" ClientRequestPath in ("/api/v1/customers","/api/v1/training-data","/api/v1/users","/api/v1/models")
-    | group exfil_hits  = count(),
-            exfil_paths  = array_agg_distinct(ClientRequestPath, 5)
-      by ClientIP
+    dataSource.name='Cloudflare' http_request.url.hostname='shop.soledrop.co' http_request.url.path in ('/api/v1/customers','/api/v1/training-data','/api/v1/users','/api/v1/models')
+    | group exfil_hits = count(), exfil_paths = array_agg_distinct(http_request.url.path, 5)
+      by src_endpoint.ip
     | filter exfil_hits >= 3
   )
-  on ClientIP
-| sort -block_hits
+  on src_endpoint.ip
+| sort -exploit_hits
 | limit 100
 ```
 
-- **Why it works:** either half alone is noisy (blocks happen; data endpoints get
-  hit). The **correlation** — the *same source* both attacking locks and hauling
-  data — is the high-fidelity breakout signal.
-- **Score note:** `worst_rce`/`worst_sqli` use `min()` on the assumption
-  **lower = worse** (see the ⚠️ in Step 0). Flip to `max()` if your data inverts
-  it. The rule fires on `Action="block"` regardless, so it's robust either way.
-- **Output columns:** `ClientIP`, `block_hits`, `rule_ids`, `exfil_hits`, `exfil_paths`.
+**Live result:** both attacker IPs correlated — **`exploit_hits=52`,
+`worst_sqli=worst_rce=1`** (score 1 = definite attack) *joined to* **113 and 77
+exfil pulls** across `/customers`, `/training-data`, `/users`, `/models`. Neither
+half alone is high-fidelity; the correlation is.
 
 ---
 
-## Deploying as STAR / Custom Detection rules
+## Deploying as scheduled PowerQuery detections
 
-- Paste each body into **Detections → Custom Rules** (or a PowerQuery Alert).
-- **Scope** each rule to the site/account receiving this zone's Logpush.
-- **Window:** set the rule's rolling window to the value noted per rule (10–15 min).
-- **Rule fires when the query returns ≥1 row** — the in-query `filter` thresholds
-  define a "finding," so each returned row is one alert-worthy source.
-- **Stay within alert limits:** each keeps output ≤ 100 rows / well under 1 MB, no
-  `nolimit` / `compare` / `transpose` — all alert-safe.
-- **Map alert fields** to the output columns (`ClientIP` as the entity, `last_seen`
-  as timestamp, etc.).
+Per the S1 detection-rule contract:
 
-## Validate before trusting
+- Deploy via `POST /web/api/v2.1/cloud-detection/rules` with **`queryType:"scheduled"`,
+  `queryLang:"2.0"`**, query string in **`data.scheduledParams.query`**.
+- **Alert threshold** = `scheduledParams.threshold {value:0, operator:"Greater"}`
+  ("fire if the query returns any row") — the in-query `| filter … >= N` is what
+  defines a finding, so N is the effective threshold.
+- **Alert-safe:** all bodies stay ≤ 100 rows / well under 1 MB; no `nolimit`,
+  `compare`, `transpose`, or subqueries. Box 4 uses `inner join` (allowed);
+  Box 3 is split because `union` is not.
+- **Window:** 10 min (Boxes 1–3), 15 min (Box 4).
+- **Scope** each rule to the site/account receiving the Logpush.
+- If the POST reports Scheduled Detections aren't licensed/enabled, enable
+  *Settings → Detection / SDL Add-Ons → Scheduled Detections* first (don't
+  downgrade to S1QL).
 
-1. Run the CTF against `shop.soledrop.co`.
-2. Run each body **as an ad-hoc PowerQuery** over the last 30 min (LRQ API or the
-   Purple MCP) and confirm it returns the offending IP/JA4.
-3. Only then promote to a scheduled detection — tune thresholds against a clean
-   window so you know the false-positive floor.
+## Note on the source IP
+`src_endpoint.ip` is the client IP **as Cloudflare sees it**. In this lab the
+attack traffic surfaced as a couple of high-volume IPs (a Cloudflare egress IP
+and the attack host's real IP) rather than the cosmetic per-request "src" shown
+in the CTF console. The detections key on **per-IP volume/variety**, so this is
+exactly the right entity — one IP doing 40+ paths / 37 UAs / 52 exploits stands
+far out from real shoppers.
