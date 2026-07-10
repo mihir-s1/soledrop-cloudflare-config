@@ -74,7 +74,10 @@ success "Token valid — zone: $ZONE_STATUS"
 # just header_Authorization + sourcetype.
 # strip any scheme the user may have included; keep host + path verbatim
 HEC="${S1_HEC_INGEST_URL#*://}"
-AUTH_ENC=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]+' '+sys.argv[2]))" \
+# header_Authorization = URL-encoded "<scheme> <token>", or just "<token>" when
+# S1_HEC_AUTH_SCHEME is empty (the native sentinelone:// connector prepends the
+# scheme itself, so a bare token is often what it wants).
+AUTH_ENC=$(python3 -c "import urllib.parse,sys; s,t=sys.argv[1],sys.argv[2]; print(urllib.parse.quote((s+' '+t) if s else t))" \
              "$S1_HEC_AUTH_SCHEME" "$S1_HEC_INGEST_TOKEN")
 build_dest() {
   echo "sentinelone://${HEC}?header_Authorization=${AUTH_ENC}&sourcetype=${S1_HEC_SOURCETYPE}"
