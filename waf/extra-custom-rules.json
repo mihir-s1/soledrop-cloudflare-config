@@ -1,7 +1,7 @@
 [
   {
-    "description": "WAF-RCE-Detect: Block RCE/SSRF/Log4Shell markers (query string or User-Agent)",
-    "expression": "(http.request.uri.query contains \"${jndi:\" or http.user_agent contains \"${jndi:\" or http.request.uri.query contains \"classLoader\" or http.request.uri.query contains \"ognl\" or http.request.uri.query contains \"169.254.169.254\" or http.request.uri.query contains \"file:///etc/passwd\")",
+    "description": "WAF-RCE-Detect: Block RCE/SSRF/Log4Shell markers (URL-decoded query or User-Agent)",
+    "expression": "(url_decode(http.request.uri.query) contains \"${jndi:\" or http.user_agent contains \"${jndi:\" or url_decode(http.request.uri.query) contains \"classLoader\" or url_decode(http.request.uri.query) contains \"ognl\" or url_decode(http.request.uri.query) contains \"169.254.169.254\" or url_decode(http.request.uri.query) contains \"file:///etc/passwd\")",
     "action": "block",
     "enabled": true
   },
