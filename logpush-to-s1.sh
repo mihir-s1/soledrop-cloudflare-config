@@ -48,7 +48,10 @@ step "Validating environment"
 
 # Tunables (override in .env.local if needed)
 S1_HEC_SOURCETYPE="${S1_HEC_SOURCETYPE:-marketplace-cloudflare-latest}"
-S1_HEC_AUTH_SCHEME="${S1_HEC_AUTH_SCHEME-Bearer}"    # unset -> Bearer; set empty ("") -> bare token (no scheme prefix)
+# Bare token by default: the native sentinelone:// connector prepends the auth
+# scheme itself, so a "Bearer <token>" here becomes a double prefix and 401s.
+# Set S1_HEC_AUTH_SCHEME=Bearer (or Splunk) only for a raw splunk:// HEC.
+S1_HEC_AUTH_SCHEME="${S1_HEC_AUTH_SCHEME-}"
 SHOP_HOST="${SHOP_HOST:-shop.soledrop.co}"
 
 cf_api() {
